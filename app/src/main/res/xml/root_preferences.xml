@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <PreferenceCategory
+        android:key="video_settings_key"
+        android:title="@string/video">
+
+        <ListPreference
+            android:key="video_encoder_key"
+            android:title="@string/video_encoder" />
+
+        <ListPreference
+            android:key="video_resolution_key"
+            android:title="@string/resolution" />
+
+        <SeekBarPreference
+            android:key="video_bitrate_key"
+            android:title="@string/video_bitrate"
+            android:defaultValue="2000"
+            android:min="100"
+            android:max="10000" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="audio_settings_key"
+        android:title="@string/audio">
+
+        <ListPreference
+            android:key="audio_encoder_key"
+            android:title="@string/audio_encoder" />
+
+        <ListPreference
+            android:key="@string/audio_number_of_channels_key"
+            android:title="@string/audio_number_of_channels"
+            android:entries="@array/AudioNumberOfChannelsEntries"
+            android:entryValues="@array/AudioNumberOfChannelsEntryValues" />
+
+        <ListPreference
+            android:key="audio_bitrate_key"
+            android:title="@string/audio_bitrate"
+            android:entries="@array/AudioBitrateEntries"
+            android:entryValues="@array/AudioBitrateEntryValues" />
+
+        <ListPreference
+            android:key="audio_sample_rate_key"
+            android:title="@string/audio_sample_rate" />
+
+        <ListPreference
+            android:key="audio_byte_format_key"
+            android:title="@string/audio_byte_format" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="endpoint_category_key"
+        android:title="@string/endpoint">
+
+        <ListPreference
+            android:key="endpoint_type_key"
+            android:title="@string/endpoint_type" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="srt_server_key"
+        android:title="@string/srt_server">
+
+        <EditTextPreference
+            android:key="server_ip_key"
+            android:title="@string/server_ip" />
+
+        <EditTextPreference
+            android:key="server_port_key"
+            android:title="@string/server_port"
+            android:defaultValue="9998" />
+
+        <EditTextPreference
+            android:key="server_stream_id_key"
+            android:title="@string/server_stream_id"
+            android:defaultValue="@string/default_server_stream_id" />
+
+        <EditTextPreference
+            android:key="server_passphrase_key"
+            android:title="@string/server_passphrase" />
+
+        <SwitchPreference
+            android:defaultValue="false"
+            android:key="@string/server_enable_bitrate_regulation_key"
+            android:title="@string/server_enable_bitrate_regulation" />
+
+        <SeekBarPreference
+            android:max="10000"
+            android:defaultValue="5000"
+            android:key="@string/server_video_target_bitrate_key"
+            android:min="500"
+            app:showSeekBarValue="true"
+            android:title="@string/server_video_target_bitrate" />
+
+        <SeekBarPreference
+            android:max="10000"
+            android:defaultValue="300"
+            android:key="@string/server_video_min_bitrate_key"
+            android:min="100"
+            app:showSeekBarValue="true"
+            android:title="@string/server_video_min_bitrate" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="rtmp_server_key"
+        android:title="@string/rtmp_server">
+
+        <EditTextPreference
+            android:key="rtmp_server_url_key"
+            android:title="@string/server_url"
+            android:defaultValue="@string/default_rtmp_url" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="websocket_server_key"
+        android:title="@string/websocket_server">
+
+        <EditTextPreference
+            android:key="websocket_server_url_key"
+            android:title="@string/server_url"
+            android:defaultValue="@string/default_websocket_url" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="ts_muxer_key"
+        android:title="@string/ts_muxer">
+
+        <EditTextPreference
+            android:key="ts_muxer_service_key"
+            android:title="@string/ts_muxer_service"
+            android:defaultValue="@string/default_muxer_service" />
+
+        <EditTextPreference
+            android:key="ts_muxer_provider_key"
+            android:title="@string/ts_muxer_provider"
+            android:defaultValue="@string/default_ts_muxer_provider" />
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="language_settings_key"
+        android:title="@string/language">
+
+        <ListPreference
+            android:key="@string/language_key"
+            android:title="@string/language"
+            android:entries="@array/LanguageEntries"
+            android:entryValues="@array/LanguageEntryValues"
+            android:defaultValue="en" />
+    </PreferenceCategory>
+
+</PreferenceScreen>
