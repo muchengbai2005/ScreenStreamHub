@@ -304,6 +304,84 @@ WebSocket H.264 服务器已启动
 
 ---
 
+## 实例2 (websocket_h264_ai)
+
+**运行命令：**
+
+```bash
+D:\program\miniconda\envs\flask_test\python.exe D:\muchengbai\wenjian\py\serverapp\websocket_h264_ai.py 
+```
+
+**输出示例：**
+
+```bash
+============================================================
+WebSocket H.264 服务器已启动
+============================================================
+本地地址: ws://localhost:8765/stream
+网络地址: ws://0.0.0.0:8765/stream
+============================================================
+使用 cloudflared 内网穿透:
+  cloudflared.exe tunnel --url http://localhost:8765
+============================================================
+等待客户端连接...
+------------------------------------------------------------
+```
+
+### server_config.json 配置说明
+
+```json
+{
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8765,
+        "max_message_mb": 2
+    },
+    "display": {
+        "enabled": true,
+        "window_name": "H264-Live",
+        "show_overlay": true
+    },
+    "recording": {
+        "enabled": true,
+        "output_dir": "output",
+        "max_file_mb": 0,
+        "file_prefix": "h264"
+    },
+    "screenshot": {
+        "enabled": true,
+        "interval_seconds": 4.0,
+        "output_dir": "screenshots",
+        "filename": "capture.jpg",
+        "quality": 85
+    },
+    "decode": {
+        "queue_size": 8000
+    },
+    "stats": {
+        "enabled": true,
+        "interval": 100
+    }
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `server.port` | WebSocket 端口 |
+| `server.max_message_mb` | 单条消息最大 MB |
+| `display.enabled` | 是否显示 CV 窗口（关掉后不弹窗，纯后台录制） |
+| `display.show_overlay` | 窗口左上角是否显示帧号/FPS |
+| `recording.enabled` | 是否保存 H.264 文件 |
+| `recording.max_file_mb` | 单文件最大 MB，0 = 不限，超出自动分片 `h264_xxx_p001.h264` |
+| `screenshot.enabled` | 是否开启定时截图 |
+| `screenshot.interval_seconds` | 截图间隔秒数 |
+| `screenshot.filename` | 截图文件名（同名覆盖） |
+| `screenshot.quality` | JPEG 质量 0-100 |
+| `decode.queue_size` | 解码队列大小，内存紧张可调小到 2000 |
+| `stats.interval` | 每隔多少条消息打印一次统计 |
+
+---
+
 ## 🎛️ 配置项说明
 
 ### 视频配置
