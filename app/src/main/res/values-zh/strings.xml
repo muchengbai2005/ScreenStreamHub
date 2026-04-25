@@ -86,4 +86,48 @@
     <string name="language_key">language_key</string>
     <string name="english">English</string>
     <string name="chinese">中文</string>
+
+    <!-- Video FPS setting -->
+    <string name="video_fps">帧率</string>
+    <string name="video_fps_key">video_fps_key</string>
+
+    <!-- Video orientation setting -->
+    <string name="video_orientation">方向</string>
+    <string name="video_orientation_key">video_orientation_key</string>
+    <string name="video_orientation_landscape">横屏</string>
+    <string name="video_orientation_portrait">竖屏</string>
+
+    <!-- WebSocket settings -->
+    <string name="websocket_enable_b_frames">启用B帧</string>
+    <string name="websocket_enable_b_frames_key">websocket_enable_b_frames_key</string>
+    <string name="websocket_keyframe_interval">关键帧间隔 (秒)</string>
+    <string name="websocket_keyframe_interval_key">websocket_keyframe_interval_key</string>
+
+    <!-- Audio enable setting -->
+    <string name="audio_enable">启用音频</string>
+    <string name="audio_enable_key">audio_enable_key</string>
+
+    <!-- Arrays for settings -->
+    <string-array name="VideoFpsEntries">
+        <item>3 FPS</item>
+        <item>5 FPS</item>
+        <item>10 FPS</item>
+        <item>15 FPS</item>
+        <item>30 FPS</item>
+    </string-array>
+    <string-array name="VideoFpsEntryValues">
+        <item>3</item>
+        <item>5</item>
+        <item>10</item>
+        <item>15</item>
+        <item>30</item>
+    </string-array>
+    <string-array name="VideoOrientationEntries">
+        <item>横屏</item>
+        <item>竖屏</item>
+    </string-array>
+    <string-array name="VideoOrientationEntryValues">
+        <item>landscape</item>
+        <item>portrait</item>
+    </string-array>
 </resources>

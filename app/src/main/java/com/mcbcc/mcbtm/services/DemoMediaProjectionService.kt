@@ -12,6 +12,7 @@ import androidx.lifecycle.lifecycleScope
 import io.github.thibaultbee.streampack.core.elements.sources.audio.IAudioSourceInternal
 import io.github.thibaultbee.streampack.core.elements.sources.audio.audiorecord.MediaProjectionAudioSourceFactory
 import io.github.thibaultbee.streampack.core.elements.sources.audio.audiorecord.MicrophoneSourceFactory
+
 import io.github.thibaultbee.streampack.core.interfaces.ICloseableStreamer
 import io.github.thibaultbee.streampack.core.streamers.single.ISingleStreamer
 import io.github.thibaultbee.streampack.core.streamers.single.SingleStreamer
@@ -31,8 +32,12 @@ class DemoMediaProjectionService : MediaProjectionService<ISingleStreamer>(
     override fun createDefaultAudioSource(
         mediaProjection: MediaProjection,
         extras: Bundle
-    ): IAudioSourceInternal.Factory {
+    ): IAudioSourceInternal.Factory? {
         val audioSource = extras.getString(AUDIO_SOURCE_KEY)
+        if (audioSource == null) {
+            // 音频禁用，返回null
+            return null
+        }
         return if (audioSource == AUDIO_SOURCE_MEDIA_PROJECTION_KEY) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 MediaProjectionAudioSourceFactory(mediaProjection)
@@ -88,11 +93,11 @@ class DemoMediaProjectionService : MediaProjectionService<ISingleStreamer>(
     }
 }
 
-class CustomStreamerFactory : StreamerFactory<ISingleStreamer> {
+class CustomStreamerFactory(private val withAudio: Boolean = false) : StreamerFactory<ISingleStreamer> {
     override fun create(context: Context): ISingleStreamer {
         return SingleStreamer(
             context,
-            withAudio = true,
+            withAudio = withAudio,
             withVideo = true,
             endpointFactory = CombinedEndpointFactory()
         )

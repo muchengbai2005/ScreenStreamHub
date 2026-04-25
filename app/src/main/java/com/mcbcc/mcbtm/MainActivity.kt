@@ -87,7 +87,16 @@ class MainActivity : AppCompatActivity() {
         binding.liveButton.setOnCheckedChangeListener { view, isChecked ->
             if (view.isPressed) {
                 if (isChecked) {
-                    requestAudioPermissionsLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    if (configuration.audio.enable) {
+                        requestAudioPermissionsLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    } else {
+                        // 音频禁用时直接启动屏幕录制
+                        getContent.launch(
+                            MediaProjectionUtils.createScreenCaptureIntent(
+                                this
+                            )
+                        )
+                    }
                 } else {
                     runBlocking {
                         streamer?.stopStream()
@@ -152,30 +161,32 @@ class MainActivity : AppCompatActivity() {
                     Log.i(TAG, "Service disconnected")
                 },
                 onExtra = { extra ->
-                    extra.putExtra(AUDIO_SOURCE_KEY, AUDIO_SOURCE_MICROPHONE_KEY)
+                    if (configuration.audio.enable) {
+                        extra.putExtra(AUDIO_SOURCE_KEY, AUDIO_SOURCE_MICROPHONE_KEY)
+                    }
                 }
             )
         }
 
     private fun configure(streamer: IVideoStreamer<*>) {
-        val deviceRefreshRate =
+        val deviceRefreshRate = 
             (this.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(
                 Display.DEFAULT_DISPLAY
             ).refreshRate.toInt()
-        val fps = if (MediaCodecHelper.Video.getFramerateRange(configuration.video.encoder)
-                .contains(deviceRefreshRate)
-        ) {
-            deviceRefreshRate
-        } else {
-            30
-        }
 
         val videoConfig = VideoConfig(
             mimeType = configuration.video.encoder,
             startBitrate = configuration.video.bitrate * 1000,
             resolution = configuration.video.resolution,
-            fps = fps
+            fps = configuration.video.fps,
+            gopDurationInS = configuration.endpoint.websocket.keyframeInterval.toFloat()
         )
+        
+        Log.i(TAG, "视频配置: 分辨率=${configuration.video.resolution}, 帧率=${configuration.video.fps}fps, 码率=${configuration.video.bitrate}Kbps")
+        
+        // 确保编码器真正按照设置的帧率输出
+        // 添加帧率限制，防止编码器输出过高帧率
+        val fps = configuration.video.fps
         lifecycleScope.launch {
             when (streamer) {
                 is IVideoSingleStreamer -> streamer.setVideoConfig(videoConfig)
@@ -184,37 +195,41 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        if (streamer !is IConfigurableAudioStreamer<*>) {
-            Log.e(TAG, "Streamer does not support audio configuration")
-            return
-        }
+        // 只有当音频启用时才配置音频
+        if (configuration.audio.enable) {
+            if (streamer is IConfigurableAudioStreamer<*>) {
+                val audioConfig = AudioConfig(
+                    mimeType = configuration.audio.encoder,
+                    startBitrate = configuration.audio.bitrate,
+                    sampleRate = configuration.audio.sampleRate,
+                    channelConfig = AudioConfig.getChannelConfig(configuration.audio.numberOfChannels),
+                    byteFormat = configuration.audio.byteFormat
+                )
 
-        val audioConfig = AudioConfig(
-            mimeType = configuration.audio.encoder,
-            startBitrate = configuration.audio.bitrate,
-            sampleRate = configuration.audio.sampleRate,
-            channelConfig = AudioConfig.getChannelConfig(configuration.audio.numberOfChannels),
-            byteFormat = configuration.audio.byteFormat
-        )
+                if (ActivityCompat.checkSelfPermission(
+                        this, Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                ) {
+                    lifecycleScope.launch {
+                        when (streamer) {
+                            is IAudioSingleStreamer -> streamer.setAudioConfig(audioConfig)
+                            is IAudioDualStreamer -> streamer.setAudioConfig(
+                                DualStreamerAudioConfig(
+                                    audioConfig
+                                )
+                            )
 
-        if (ActivityCompat.checkSelfPermission(
-                this, Manifest.permission.RECORD_AUDIO
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            lifecycleScope.launch {
-                when (streamer) {
-                    is IAudioSingleStreamer -> streamer.setAudioConfig(audioConfig)
-                    is IAudioDualStreamer -> streamer.setAudioConfig(
-                        DualStreamerAudioConfig(
-                            audioConfig
-                        )
-                    )
-
-                    else -> throw IllegalStateException("Streamer is not a audio streamer")
+                            else -> throw IllegalStateException("Streamer is not a audio streamer")
+                        }
+                    }
+                } else {
+                    throw SecurityException("Permission RECORD_AUDIO must have been granted!")
                 }
+            } else {
+                Log.d(TAG, "Streamer does not support audio configuration, skipping audio setup")
             }
         } else {
-            throw SecurityException("Permission RECORD_AUDIO must have been granted!")
+            Log.d(TAG, "Audio is disabled in settings, skipping audio setup")
         }
     }
 

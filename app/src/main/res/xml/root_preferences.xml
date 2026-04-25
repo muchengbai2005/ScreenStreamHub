@@ -17,14 +17,33 @@
         <SeekBarPreference
             android:key="video_bitrate_key"
             android:title="@string/video_bitrate"
-            android:defaultValue="2000"
+            android:defaultValue="800"
             android:min="100"
             android:max="10000" />
+
+        <ListPreference
+            android:key="video_fps_key"
+            android:title="@string/video_fps"
+            android:entries="@array/VideoFpsEntries"
+            android:entryValues="@array/VideoFpsEntryValues"
+            android:defaultValue="5" />
+
+        <ListPreference
+            android:key="video_orientation_key"
+            android:title="@string/video_orientation"
+            android:entries="@array/VideoOrientationEntries"
+            android:entryValues="@array/VideoOrientationEntryValues"
+            android:defaultValue="landscape" />
     </PreferenceCategory>
 
     <PreferenceCategory
         android:key="audio_settings_key"
         android:title="@string/audio">
+
+        <SwitchPreference
+            android:defaultValue="false"
+            android:key="audio_enable_key"
+            android:title="@string/audio_enable" />
 
         <ListPreference
             android:key="audio_encoder_key"
@@ -122,6 +141,19 @@
             android:key="websocket_server_url_key"
             android:title="@string/server_url"
             android:defaultValue="@string/default_websocket_url" />
+
+        <SwitchPreference
+            android:defaultValue="false"
+            android:key="websocket_enable_b_frames_key"
+            android:title="@string/websocket_enable_b_frames" />
+
+        <SeekBarPreference
+            android:max="10"
+            android:defaultValue="2"
+            android:key="websocket_keyframe_interval_key"
+            android:min="1"
+            app:showSeekBarValue="true"
+            android:title="@string/websocket_keyframe_interval" />
     </PreferenceCategory>
 
     <PreferenceCategory

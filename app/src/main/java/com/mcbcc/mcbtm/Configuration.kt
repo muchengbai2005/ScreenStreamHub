@@ -33,11 +33,20 @@ class Configuration(context: Context) {
                 )
             }
 
-        var bitrate: Int = 2000
+        var bitrate: Int = 800
             get() = sharedPref.getInt(resources.getString(R.string.video_bitrate_key), field)
+
+        var fps: Int = 5
+            get() = sharedPref.getString(resources.getString(R.string.video_fps_key), field.toString())!!.toInt()
+
+        var orientation: String = "landscape"
+            get() = sharedPref.getString(resources.getString(R.string.video_orientation_key), field)!!
     }
 
     class Audio(private val sharedPref: SharedPreferences, private val resources: Resources) {
+        var enable: Boolean = false
+            get() = sharedPref.getBoolean(resources.getString(R.string.audio_enable_key), field)
+
         var encoder: String = MediaFormat.MIMETYPE_AUDIO_AAC
             get() = sharedPref.getString(resources.getString(R.string.audio_encoder_key), field)!!
 
@@ -142,6 +151,12 @@ class Configuration(context: Context) {
                     resources.getString(R.string.websocket_server_url_key),
                     field
                 )!!
+
+            var enableBFrames: Boolean = false
+                get() = sharedPref.getBoolean(resources.getString(R.string.websocket_enable_b_frames_key), field)
+
+            var keyframeInterval: Int = 2
+                get() = sharedPref.getInt(resources.getString(R.string.websocket_keyframe_interval_key), field)
         }
     }
 
