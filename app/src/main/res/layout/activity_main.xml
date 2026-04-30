@@ -19,6 +19,22 @@
         app:borderWidth="0dp" />
 
     <ToggleButton
+        android:id="@+id/floatingWindowButton"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_alignParentEnd="true"
+        android:layout_alignParentTop="true"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="10dp"
+        android:textOff="@string/floating_toggle"
+        android:textOn="@string/floating_toggle"
+        android:textSize="12sp"
+        android:paddingHorizontal="10dp"
+        android:backgroundTint="#CC333333"
+        android:textColor="#FFFFFF"
+        android:minHeight="0dp" />
+
+    <ToggleButton
         android:id="@+id/liveButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

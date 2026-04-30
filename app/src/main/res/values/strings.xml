@@ -90,6 +90,7 @@
     <!-- Video FPS setting -->
     <string name="video_fps">Frames per second</string>
     <string name="video_fps_key">video_fps_key</string>
+    <string name="video_fps_summary">Encoder hint only. Does not control actual capture/transfer rate. Use WebSocket FPS limit for real control.</string>
 
     <!-- Video orientation setting -->
     <string name="video_orientation">Orientation</string>
@@ -102,6 +103,60 @@
     <string name="websocket_enable_b_frames_key">websocket_enable_b_frames_key</string>
     <string name="websocket_keyframe_interval">Keyframe interval (seconds)</string>
     <string name="websocket_keyframe_interval_key">websocket_keyframe_interval_key</string>
+    <string name="websocket_auto_reconnect">Auto reconnect</string>
+    <string name="websocket_auto_reconnect_key">websocket_auto_reconnect_key</string>
+    <string name="websocket_enable_fps_limit">Enable FPS limit</string>
+    <string name="websocket_enable_fps_limit_key">websocket_enable_fps_limit_key</string>
+    <string name="websocket_target_fps">Target FPS</string>
+    <string name="websocket_target_fps_key">websocket_target_fps_key</string>
+    <string name="websocket_frame_drop_strategy">Frame drop strategy</string>
+    <string name="websocket_frame_drop_strategy_key">websocket_frame_drop_strategy_key</string>
+    <string name="websocket_keyframe_only">Keyframe only</string>
+    <string name="websocket_keyframe_only_key">websocket_keyframe_only_key</string>
+
+    <!-- WebSocket advanced settings -->
+    <string name="websocket_connect_timeout">Connect timeout (seconds)</string>
+    <string name="websocket_connect_timeout_key">websocket_connect_timeout_key</string>
+    <string name="websocket_send_queue_size">Send queue size</string>
+    <string name="websocket_send_queue_size_key">websocket_send_queue_size_key</string>
+    <string name="websocket_batch_send">Batch send (reduce packets)</string>
+    <string name="websocket_batch_send_key">websocket_batch_send_key</string>
+    <string name="websocket_batch_interval">Batch interval (ms)</string>
+    <string name="websocket_batch_interval_key">websocket_batch_interval_key</string>
+    <string name="websocket_ping_interval">Ping interval (seconds, 0=off)</string>
+    <string name="websocket_ping_interval_key">websocket_ping_interval_key</string>
+    <string name="websocket_nagle_enabled">Nagle algorithm (merge small packets)</string>
+    <string name="websocket_nagle_enabled_key">websocket_nagle_enabled_key</string>
+    <string name="websocket_max_message_size">Max message size (KB)</string>
+    <string name="websocket_max_message_size_key">websocket_max_message_size_key</string>
+    <string name="websocket_reconnect_max_attempts">Max reconnect attempts (0=unlimited)</string>
+    <string name="websocket_reconnect_max_attempts_key">websocket_reconnect_max_attempts_key</string>
+    <string name="websocket_i_frame_priority">I-frame priority (send first)</string>
+    <string name="websocket_i_frame_priority_key">websocket_i_frame_priority_key</string>
+    <string name="websocket_queue_overflow_strategy">Queue overflow strategy</string>
+    <string name="websocket_queue_overflow_strategy_key">websocket_queue_overflow_strategy_key</string>
+
+    <!-- Frame drop strategy entries -->
+    <string-array name="FrameDropStrategyEntries">
+        <item>Evenly timed (low latency)</item>
+        <item>Burst from keyframe (no artifacts)</item>
+    </string-array>
+    <string-array name="FrameDropStrategyEntryValues">
+        <item>evenly_timed</item>
+        <item>burst_from_keyframe</item>
+    </string-array>
+
+    <!-- Queue overflow strategy entries -->
+    <string-array name="QueueOverflowStrategyEntries">
+        <item>Drop oldest (low latency)</item>
+        <item>Drop newest (keep continuity)</item>
+        <item>Drop P-frames only (best quality)</item>
+    </string-array>
+    <string-array name="QueueOverflowStrategyEntryValues">
+        <item>drop_oldest</item>
+        <item>drop_newest</item>
+        <item>drop_p_only</item>
+    </string-array>
 
     <!-- Audio enable setting -->
     <string name="audio_enable">Enable audio</string>
@@ -130,4 +185,16 @@
         <item>landscape</item>
         <item>portrait</item>
     </string-array>
+
+    <!-- Floating window -->
+    <string name="floating_window_title">Floating Window</string>
+    <string name="floating_btn_visibility">Toggle visibility</string>
+    <string name="floating_btn_zoom_in">Zoom in</string>
+    <string name="floating_btn_zoom_out">Zoom out</string>
+    <string name="floating_btn_fullscreen">Fullscreen map</string>
+    <string name="floating_toggle">Floating Window</string>
+    <string name="floating_permission_required">Overlay permission required for floating window</string>
+    <string name="floating_grant_permission">Grant Permission</string>
+    <string name="floating_enabled">Floating window enabled</string>
+    <string name="floating_disabled">Floating window disabled</string>
 </resources>

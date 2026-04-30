@@ -301,6 +301,51 @@ class SettingsFragment : PreferenceFragmentCompat() {
             }
             true
         }
+
+        loadWebSocketSettings()
+    }
+
+    private fun loadWebSocketSettings() {
+        val enableFpsLimitPreference: SwitchPreference =
+            findPreference(getString(R.string.websocket_enable_fps_limit_key))!!
+        val targetFpsPreference: SeekBarPreference =
+            findPreference(getString(R.string.websocket_target_fps_key))!!
+        val autoReconnectPreference: SwitchPreference =
+            findPreference(getString(R.string.websocket_auto_reconnect_key))!!
+        val reconnectMaxAttemptsPreference: SeekBarPreference =
+            findPreference(getString(R.string.websocket_reconnect_max_attempts_key))!!
+        val batchSendPreference: SwitchPreference =
+            findPreference(getString(R.string.websocket_batch_send_key))!!
+        val batchIntervalPreference: SeekBarPreference =
+            findPreference(getString(R.string.websocket_batch_interval_key))!!
+        val keyframeOnlyPreference: SwitchPreference =
+            findPreference(getString(R.string.websocket_keyframe_only_key))!!
+
+        targetFpsPreference.isVisible = enableFpsLimitPreference.isChecked
+        enableFpsLimitPreference.setOnPreferenceChangeListener { _, newValue ->
+            targetFpsPreference.isVisible = newValue as Boolean
+            true
+        }
+
+        reconnectMaxAttemptsPreference.isVisible = autoReconnectPreference.isChecked
+        autoReconnectPreference.setOnPreferenceChangeListener { _, newValue ->
+            reconnectMaxAttemptsPreference.isVisible = newValue as Boolean
+            true
+        }
+
+        batchIntervalPreference.isVisible = batchSendPreference.isChecked
+        batchSendPreference.setOnPreferenceChangeListener { _, newValue ->
+            batchIntervalPreference.isVisible = newValue as Boolean
+            true
+        }
+
+        val frameDropStrategyPreference: ListPreference =
+            findPreference(getString(R.string.websocket_frame_drop_strategy_key))!!
+        val queueOverflowStrategyPreference: ListPreference =
+            findPreference(getString(R.string.websocket_queue_overflow_strategy_key))!!
+
+        frameDropStrategyPreference.summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
+        queueOverflowStrategyPreference.summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
     }
 
     private fun loadPreferences() {

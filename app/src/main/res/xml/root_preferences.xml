@@ -24,6 +24,7 @@
         <ListPreference
             android:key="video_fps_key"
             android:title="@string/video_fps"
+            android:summary="@string/video_fps_summary"
             android:entries="@array/VideoFpsEntries"
             android:entryValues="@array/VideoFpsEntryValues"
             android:defaultValue="5" />
@@ -154,6 +155,106 @@
             android:min="1"
             app:showSeekBarValue="true"
             android:title="@string/websocket_keyframe_interval" />
+
+        <SwitchPreference
+            android:defaultValue="false"
+            android:key="websocket_auto_reconnect_key"
+            android:title="@string/websocket_auto_reconnect" />
+
+        <SeekBarPreference
+            android:max="10"
+            android:defaultValue="0"
+            android:key="websocket_reconnect_max_attempts_key"
+            android:min="0"
+            app:showSeekBarValue="true"
+            android:title="@string/websocket_reconnect_max_attempts" />
+
+        <SwitchPreference
+            android:defaultValue="false"
+            android:key="websocket_enable_fps_limit_key"
+            android:title="@string/websocket_enable_fps_limit" />
+
+        <SeekBarPreference
+            android:max="60"
+            android:defaultValue="10"
+            android:key="websocket_target_fps_key"
+            android:min="1"
+            app:showSeekBarValue="true"
+            android:title="@string/websocket_target_fps" />
+
+        <ListPreference
+            android:key="websocket_frame_drop_strategy_key"
+            android:title="@string/websocket_frame_drop_strategy"
+            android:entries="@array/FrameDropStrategyEntries"
+            android:entryValues="@array/FrameDropStrategyEntryValues"
+            android:defaultValue="evenly_timed" />
+
+        <SwitchPreference
+            android:defaultValue="false"
+            android:key="websocket_keyframe_only_key"
+            android:title="@string/websocket_keyframe_only" />
+
+        <SeekBarPreference
+            android:max="30"
+            android:defaultValue="10"
+            android:key="websocket_connect_timeout_key"
+            android:min="3"
+            app:showSeekBarValue="true"
+            android:title="@string/websocket_connect_timeout" />
+
+        <SeekBarPreference
+            android:max="100"
+            android:defaultValue="30"
+            android:key="websocket_send_queue_size_key"
+            android:min="5"
+            app:showSeekBarValue="true"
+            android:title="@string/websocket_send_queue_size" />
+
+        <ListPreference
+            android:key="websocket_queue_overflow_strategy_key"
+            android:title="@string/websocket_queue_overflow_strategy"
+            android:entries="@array/QueueOverflowStrategyEntries"
+            android:entryValues="@array/QueueOverflowStrategyEntryValues"
+            android:defaultValue="drop_oldest" />
+
+        <SwitchPreference
+            android:defaultValue="false"
+            android:key="websocket_batch_send_key"
+            android:title="@string/websocket_batch_send" />
+
+        <SeekBarPreference
+            android:max="100"
+            android:defaultValue="20"
+            android:key="websocket_batch_interval_key"
+            android:min="5"
+            app:showSeekBarValue="true"
+            android:title="@string/websocket_batch_interval" />
+
+        <SwitchPreference
+            android:defaultValue="false"
+            android:key="websocket_nagle_enabled_key"
+            android:title="@string/websocket_nagle_enabled" />
+
+        <SeekBarPreference
+            android:max="60"
+            android:defaultValue="0"
+            android:key="websocket_ping_interval_key"
+            android:min="0"
+            app:showSeekBarValue="true"
+            android:title="@string/websocket_ping_interval" />
+
+        <SeekBarPreference
+            android:max="1024"
+            android:defaultValue="64"
+            android:key="websocket_max_message_size_key"
+            android:min="4"
+            app:showSeekBarValue="true"
+            android:title="@string/websocket_max_message_size" />
+
+        <SwitchPreference
+            android:defaultValue="true"
+            android:key="websocket_i_frame_priority_key"
+            android:title="@string/websocket_i_frame_priority" />
     </PreferenceCategory>
 
     <PreferenceCategory

@@ -90,6 +90,7 @@
     <!-- Video FPS setting -->
     <string name="video_fps">帧率</string>
     <string name="video_fps_key">video_fps_key</string>
+    <string name="video_fps_summary">仅影响编码器码率分配，不控制实际采集/传输帧率。请使用WebSocket帧率限制来真正控制传输帧率。</string>
 
     <!-- Video orientation setting -->
     <string name="video_orientation">方向</string>
@@ -102,6 +103,60 @@
     <string name="websocket_enable_b_frames_key">websocket_enable_b_frames_key</string>
     <string name="websocket_keyframe_interval">关键帧间隔 (秒)</string>
     <string name="websocket_keyframe_interval_key">websocket_keyframe_interval_key</string>
+    <string name="websocket_auto_reconnect">自动重连</string>
+    <string name="websocket_auto_reconnect_key">websocket_auto_reconnect_key</string>
+    <string name="websocket_enable_fps_limit">启用帧率限制</string>
+    <string name="websocket_enable_fps_limit_key">websocket_enable_fps_limit_key</string>
+    <string name="websocket_target_fps">目标帧率</string>
+    <string name="websocket_target_fps_key">websocket_target_fps_key</string>
+    <string name="websocket_frame_drop_strategy">丢帧策略</string>
+    <string name="websocket_frame_drop_strategy_key">websocket_frame_drop_strategy_key</string>
+    <string name="websocket_keyframe_only">仅传关键帧</string>
+    <string name="websocket_keyframe_only_key">websocket_keyframe_only_key</string>
+
+    <!-- WebSocket advanced settings -->
+    <string name="websocket_connect_timeout">连接超时 (秒)</string>
+    <string name="websocket_connect_timeout_key">websocket_connect_timeout_key</string>
+    <string name="websocket_send_queue_size">发送队列大小</string>
+    <string name="websocket_send_queue_size_key">websocket_send_queue_size_key</string>
+    <string name="websocket_batch_send">批量发送 (减少包数)</string>
+    <string name="websocket_batch_send_key">websocket_batch_send_key</string>
+    <string name="websocket_batch_interval">批量间隔 (毫秒)</string>
+    <string name="websocket_batch_interval_key">websocket_batch_interval_key</string>
+    <string name="websocket_ping_interval">Ping间隔 (秒, 0=关闭)</string>
+    <string name="websocket_ping_interval_key">websocket_ping_interval_key</string>
+    <string name="websocket_nagle_enabled">Nagle算法 (合并小包)</string>
+    <string name="websocket_nagle_enabled_key">websocket_nagle_enabled_key</string>
+    <string name="websocket_max_message_size">最大消息大小 (KB)</string>
+    <string name="websocket_max_message_size_key">websocket_max_message_size_key</string>
+    <string name="websocket_reconnect_max_attempts">最大重连次数 (0=无限)</string>
+    <string name="websocket_reconnect_max_attempts_key">websocket_reconnect_max_attempts_key</string>
+    <string name="websocket_i_frame_priority">I帧优先 (优先发送)</string>
+    <string name="websocket_i_frame_priority_key">websocket_i_frame_priority_key</string>
+    <string name="websocket_queue_overflow_strategy">队列溢出策略</string>
+    <string name="websocket_queue_overflow_strategy_key">websocket_queue_overflow_strategy_key</string>
+
+    <!-- Frame drop strategy entries -->
+    <string-array name="FrameDropStrategyEntries">
+        <item>时间均匀 (低延迟)</item>
+        <item>关键帧突发 (无花屏)</item>
+    </string-array>
+    <string-array name="FrameDropStrategyEntryValues">
+        <item>evenly_timed</item>
+        <item>burst_from_keyframe</item>
+    </string-array>
+
+    <!-- Queue overflow strategy entries -->
+    <string-array name="QueueOverflowStrategyEntries">
+        <item>丢弃最旧 (低延迟)</item>
+        <item>丢弃最新 (保持连续)</item>
+        <item>仅丢弃P帧 (最佳画质)</item>
+    </string-array>
+    <string-array name="QueueOverflowStrategyEntryValues">
+        <item>drop_oldest</item>
+        <item>drop_newest</item>
+        <item>drop_p_only</item>
+    </string-array>
 
     <!-- Audio enable setting -->
     <string name="audio_enable">启用音频</string>
@@ -130,4 +185,16 @@
         <item>landscape</item>
         <item>portrait</item>
     </string-array>
+
+    <!-- Floating window -->
+    <string name="floating_window_title">悬浮窗</string>
+    <string name="floating_btn_visibility">显示/隐藏</string>
+    <string name="floating_btn_zoom_in">放大</string>
+    <string name="floating_btn_zoom_out">缩小</string>
+    <string name="floating_btn_fullscreen">全屏地图</string>
+    <string name="floating_toggle">悬浮窗</string>
+    <string name="floating_permission_required">需要悬浮窗权限才能显示悬浮窗</string>
+    <string name="floating_grant_permission">授权</string>
+    <string name="floating_enabled">悬浮窗已开启</string>
+    <string name="floating_disabled">悬浮窗已关闭</string>
 </resources>

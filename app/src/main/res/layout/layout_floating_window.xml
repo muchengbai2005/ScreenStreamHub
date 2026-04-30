@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_floating_window"
+    android:padding="2dp">
+
+    <LinearLayout
+        android:id="@+id/floatingContentRoot"
+        android:layout_width="200dp"
+        android:layout_height="150dp"
+        android:orientation="horizontal">
+
+        <LinearLayout
+            android:id="@+id/buttonPanel"
+            android:layout_width="36dp"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:background="#CC222222"
+            android:gravity="center_horizontal"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp">
+
+            <ImageButton
+                android:id="@+id/btnToggleVisibility"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:scaleType="fitCenter"
+                android:background="@drawable/bg_btn_ripple"
+                android:src="@drawable/ic_eye_open"
+                android:contentDescription="@string/floating_btn_visibility" />
+
+            <View
+                android:id="@+id/divider1"
+                android:layout_width="24dp"
+                android:layout_height="0.5dp"
+                android:background="#66FFFFFF"
+                android:layout_marginVertical="3dp" />
+
+            <ImageButton
+                android:id="@+id/btnZoomIn"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:scaleType="fitCenter"
+                android:background="@drawable/bg_btn_ripple"
+                android:src="@drawable/ic_zoom_in"
+                android:contentDescription="@string/floating_btn_zoom_in" />
+
+            <ImageButton
+                android:id="@+id/btnZoomOut"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:scaleType="fitCenter"
+                android:background="@drawable/bg_btn_ripple"
+                android:src="@drawable/ic_zoom_out"
+                android:contentDescription="@string/floating_btn_zoom_out" />
+
+            <View
+                android:id="@+id/divider2"
+                android:layout_width="24dp"
+                android:layout_height="0.5dp"
+                android:background="#66FFFFFF"
+                android:layout_marginVertical="3dp" />
+
+            <ImageButton
+                android:id="@+id/btnFullscreen"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
+                android:scaleType="fitCenter"
+                android:background="@drawable/bg_btn_ripple"
+                android:src="@drawable/ic_fullscreen"
+                android:contentDescription="@string/floating_btn_fullscreen"
+                android:alpha="0.4" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/contentPanel"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="#CC111111">
+
+            <TextView
+                android:id="@+id/tvCoordinates"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|start"
+                android:paddingStart="6dp"
+                android:paddingTop="3dp"
+                android:text="0.7, 800, 2.0"
+                android:textColor="#DDFFDD"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:shadowColor="#000000"
+                android:shadowRadius="2" />
+
+            <FrameLayout
+                android:id="@+id/mapPreviewArea"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:layout_marginStart="2dp"
+                android:layout_marginTop="16dp"
+                android:layout_marginEnd="2dp"
+                android:layout_marginBottom="14dp"
+                android:background="#33444444">
+
+                <TextView
+                    android:id="@+id/tvZoomLevel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom|end"
+                    android:layout_marginEnd="4dp"
+                    android:layout_marginBottom="2dp"
+                    android:text="07:59"
+                    android:textColor="#AADDAA"
+                    android:textSize="10sp"
+                    android:fontFamily="monospace" />
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_crosshair"
+                    android:alpha="0.5" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/tvAreaName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|start"
+                android:layout_marginStart="6dp"
+                android:layout_marginBottom="2dp"
+                android:text="平原"
+                android:textColor="#AAAAAA"
+                android:textSize="9sp" />
+        </FrameLayout>
+    </LinearLayout>
+
+</FrameLayout>

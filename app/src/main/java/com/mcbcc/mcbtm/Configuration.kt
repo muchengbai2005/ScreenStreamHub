@@ -157,6 +157,51 @@ class Configuration(context: Context) {
 
             var keyframeInterval: Int = 2
                 get() = sharedPref.getInt(resources.getString(R.string.websocket_keyframe_interval_key), field)
+
+            var autoReconnect: Boolean = false
+                get() = sharedPref.getBoolean(resources.getString(R.string.websocket_auto_reconnect_key), field)
+
+            var reconnectMaxAttempts: Int = 0
+                get() = sharedPref.getInt(resources.getString(R.string.websocket_reconnect_max_attempts_key), field)
+
+            var enableFpsLimit: Boolean = false
+                get() = sharedPref.getBoolean(resources.getString(R.string.websocket_enable_fps_limit_key), field)
+
+            var targetFps: Int = 10
+                get() = sharedPref.getInt(resources.getString(R.string.websocket_target_fps_key), field)
+
+            var frameDropStrategy: String = "evenly_timed"
+                get() = sharedPref.getString(resources.getString(R.string.websocket_frame_drop_strategy_key), field)!!
+
+            var keyframeOnly: Boolean = false
+                get() = sharedPref.getBoolean(resources.getString(R.string.websocket_keyframe_only_key), field)
+
+            var connectTimeout: Int = 10
+                get() = sharedPref.getInt(resources.getString(R.string.websocket_connect_timeout_key), field)
+
+            var sendQueueSize: Int = 30
+                get() = sharedPref.getInt(resources.getString(R.string.websocket_send_queue_size_key), field)
+
+            var queueOverflowStrategy: String = "drop_oldest"
+                get() = sharedPref.getString(resources.getString(R.string.websocket_queue_overflow_strategy_key), field)!!
+
+            var batchSend: Boolean = false
+                get() = sharedPref.getBoolean(resources.getString(R.string.websocket_batch_send_key), field)
+
+            var batchInterval: Int = 20
+                get() = sharedPref.getInt(resources.getString(R.string.websocket_batch_interval_key), field)
+
+            var nagleEnabled: Boolean = false
+                get() = sharedPref.getBoolean(resources.getString(R.string.websocket_nagle_enabled_key), field)
+
+            var pingInterval: Int = 0
+                get() = sharedPref.getInt(resources.getString(R.string.websocket_ping_interval_key), field)
+
+            var maxMessageSize: Int = 64
+                get() = sharedPref.getInt(resources.getString(R.string.websocket_max_message_size_key), field)
+
+            var iFramePriority: Boolean = true
+                get() = sharedPref.getBoolean(resources.getString(R.string.websocket_i_frame_priority_key), field)
         }
     }
 

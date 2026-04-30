@@ -5,20 +5,31 @@ import android.content.Context
 import android.content.DialogInterface
 import android.content.Intent
 import android.content.ServiceConnection
+import android.net.Uri
 import android.content.pm.PackageManager
-import android.hardware.display.DisplayManager
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
-import android.view.Display
 import android.view.Menu
 import android.view.MenuInflater
 import android.widget.PopupMenu
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
+import com.mcbcc.mcbtm.databinding.ActivityMainBinding
+import com.mcbcc.mcbtm.endpoints.WebSocketMediaDescriptor
+import com.mcbcc.mcbtm.models.EndpointType
+import com.mcbcc.mcbtm.services.DemoMediaProjectionService
+import com.mcbcc.mcbtm.services.DemoMediaProjectionService.Companion.AUDIO_SOURCE_KEY
+import com.mcbcc.mcbtm.services.DemoMediaProjectionService.Companion.AUDIO_SOURCE_MICROPHONE_KEY
+import com.mcbcc.mcbtm.services.FloatingWindowService
+import com.mcbcc.mcbtm.settings.SettingsActivity
+import com.mcbcc.mcbtm.utils.LocaleHelper
 import io.github.thibaultbee.streampack.core.configuration.mediadescriptor.UriMediaDescriptor
 import io.github.thibaultbee.streampack.core.elements.encoders.mediacodec.MediaCodecHelper
 import io.github.thibaultbee.streampack.core.elements.endpoints.composites.muxers.ts.data.TSServiceInfo
@@ -38,14 +49,6 @@ import io.github.thibaultbee.streampack.core.streamers.single.VideoConfig
 import io.github.thibaultbee.streampack.core.streamers.utils.MediaProjectionUtils
 import io.github.thibaultbee.streampack.ext.srt.configuration.mediadescriptor.SrtMediaDescriptor
 import io.github.thibaultbee.streampack.services.MediaProjectionService
-import com.mcbcc.mcbtm.databinding.ActivityMainBinding
-import com.mcbcc.mcbtm.endpoints.WebSocketMediaDescriptor
-import com.mcbcc.mcbtm.models.EndpointType
-import com.mcbcc.mcbtm.services.DemoMediaProjectionService
-import com.mcbcc.mcbtm.services.DemoMediaProjectionService.Companion.AUDIO_SOURCE_KEY
-import com.mcbcc.mcbtm.services.DemoMediaProjectionService.Companion.AUDIO_SOURCE_MICROPHONE_KEY
-import com.mcbcc.mcbtm.settings.SettingsActivity
-import com.mcbcc.mcbtm.utils.LocaleHelper
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
@@ -70,6 +73,8 @@ class MainActivity : AppCompatActivity() {
 
     private var streamer: IVideoStreamer<*>? = null
 
+    private var isFloatingWindowActive = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -90,7 +95,6 @@ class MainActivity : AppCompatActivity() {
                     if (configuration.audio.enable) {
                         requestAudioPermissionsLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     } else {
-                        // 音频禁用时直接启动屏幕录制
                         getContent.launch(
                             MediaProjectionUtils.createScreenCaptureIntent(
                                 this
@@ -107,11 +111,78 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+
+        binding.floatingWindowButton.setOnCheckedChangeListener { view, isChecked ->
+            if (view.isPressed) {
+                if (isChecked) {
+                    requestOverlayPermission()
+                } else {
+                    stopFloatingWindow()
+                }
+            }
+        }
+
+        restoreFloatingWindowState()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         stopService()
+        if (isFloatingWindowActive) {
+            stopFloatingWindow()
+        }
+    }
+
+    private fun restoreFloatingWindowState() {
+        if (FloatingWindowService.isRunning) {
+            binding.floatingWindowButton.isChecked = true
+            isFloatingWindowActive = true
+        }
+    }
+
+    private fun requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            AlertDialog.Builder(this)
+                .setTitle(R.string.floating_permission_required)
+                .setPositiveButton(R.string.floating_grant_permission) { _, _ ->
+                    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+                    overlayPermissionLauncher.launch(intent)
+                }
+                .setNegativeButton(android.R.string.cancel) { dialog, _ ->
+                    dialog.dismiss()
+                    binding.floatingWindowButton.isChecked = false
+                }
+                .show()
+        } else {
+            startFloatingWindow()
+        }
+    }
+
+    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { _ ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+            startFloatingWindow()
+        } else {
+            binding.floatingWindowButton.isChecked = false
+            Toast.makeText(this, R.string.floating_permission_required, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun startFloatingWindow() {
+        val intent = Intent(this, FloatingWindowService::class.java).apply {
+            action = FloatingWindowService.ACTION_SHOW
+        }
+        startForegroundService(intent)
+        isFloatingWindowActive = true
+        Toast.makeText(this, R.string.floating_enabled, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun stopFloatingWindow() {
+        val intent = Intent(this, FloatingWindowService::class.java).apply {
+            action = FloatingWindowService.ACTION_STOP
+        }
+        startService(intent)
+        isFloatingWindowActive = false
+        Toast.makeText(this, R.string.floating_disabled, Toast.LENGTH_SHORT).show()
     }
 
     private val requestAudioPermissionsLauncher = registerForActivityResult(
@@ -169,11 +240,6 @@ class MainActivity : AppCompatActivity() {
         }
 
     private fun configure(streamer: IVideoStreamer<*>) {
-        val deviceRefreshRate = 
-            (this.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager).getDisplay(
-                Display.DEFAULT_DISPLAY
-            ).refreshRate.toInt()
-
         val videoConfig = VideoConfig(
             mimeType = configuration.video.encoder,
             startBitrate = configuration.video.bitrate * 1000,
@@ -181,12 +247,9 @@ class MainActivity : AppCompatActivity() {
             fps = configuration.video.fps,
             gopDurationInS = configuration.endpoint.websocket.keyframeInterval.toFloat()
         )
-        
-        Log.i(TAG, "视频配置: 分辨率=${configuration.video.resolution}, 帧率=${configuration.video.fps}fps, 码率=${configuration.video.bitrate}Kbps")
-        
-        // 确保编码器真正按照设置的帧率输出
-        // 添加帧率限制，防止编码器输出过高帧率
-        val fps = configuration.video.fps
+
+        Log.i(TAG, "视频配置: 分辨率=${configuration.video.resolution}, 帧率=${configuration.video.fps}fps, 码率=${configuration.video.bitrate}Kbps, GOP=${configuration.endpoint.websocket.keyframeInterval}s")
+
         lifecycleScope.launch {
             when (streamer) {
                 is IVideoSingleStreamer -> streamer.setVideoConfig(videoConfig)
@@ -195,7 +258,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 只有当音频启用时才配置音频
         if (configuration.audio.enable) {
             if (streamer is IConfigurableAudioStreamer<*>) {
                 val audioConfig = AudioConfig(
