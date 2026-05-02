@@ -1,441 +1,688 @@
 #!/usr/bin/env python3
 """
-WebSocket H.264 裸流服务器 + 实时播放
-改进版特性：
-✅ 实时解码显示画面
-✅ 高效解码（使用完整帧数据）
-✅ FPS实时显示
-✅ 接收统计信息
-✅ 支持同时保存文件
-✅ 优雅退出
-✅ 支持cloudflared内网穿透
-✅ 修复SPS/PPS解码问题
+WebSocket H.264 实时解码显示服务器 v3
+
+v3 改动:
+  - 修复: 跳过 SEI/AUD 等非视频 NALU, 消除 avcodec_send_packet 错误
+  - 新增: JSON 配置文件, 首次运行自动生成 server_config.json
+  - 新增: 可配置 CV 窗口开关、录制开关、定时截图
+  - 新增: 录制文件大小限制, 超出自动分片
 """
 
 import asyncio
 import websockets
 import os
+import sys
 import time
+import json
 import argparse
 import cv2
-import queue
-import threading
 import numpy as np
+import threading
+import queue
 
-# ===================== 全局配置 =====================
+try:
+    import av
+except ImportError:
+    print("[!] 请先安装 PyAV: pip install av")
+    raise SystemExit(1)
+
+
+# ================================================================
+#  配置系统
+# ================================================================
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILENAME = "server_config.json"
+
+DEFAULT_CONFIG = {
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8765,
+        "max_message_mb": 2,
+    },
+    "display": {
+        "enabled": True,
+        "window_name": "H264-Live",
+        "show_overlay": True,
+    },
+    "recording": {
+        "enabled": True,
+        "output_dir": "output",
+        "max_file_mb": 0,
+        "file_prefix": "h264",
+    },
+    "screenshot": {
+        "enabled": False,
+        "interval_seconds": 4.0,
+        "output_dir": "screenshots",
+        "filename": "capture.jpg",
+        "quality": 85,
+    },
+    "decode": {
+        "queue_size": 8000,
+    },
+    "stats": {
+        "enabled": True,
+        "interval": 100,
+    },
+}
+
+cfg = {}
+
+
+def load_config(path=None):
+    """加载配置, 缺失键用默认值补齐, 无文件则自动创建"""
+    global cfg
+
+    config_path = (
+        os.path.join(SCRIPT_DIR, path)
+        if path
+        else os.path.join(SCRIPT_DIR, CONFIG_FILENAME)
+    )
+
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                user_cfg = json.load(f)
+            print(f"[+] 已加载配置: {config_path}")
+        except json.JSONDecodeError as e:
+            print(f"[!] 配置文件 JSON 格式错误: {e}, 使用默认配置")
+            user_cfg = {}
+    else:
+        user_cfg = {}
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(DEFAULT_CONFIG, f, indent=4, ensure_ascii=False)
+        print(f"[+] 已生成默认配置文件: {config_path}")
+
+    def deep_merge(base, override):
+        result = {}
+        for k in set(list(base.keys()) + list(override.keys())):
+            if k in base and k in override:
+                if isinstance(base[k], dict) and isinstance(override[k], dict):
+                    result[k] = deep_merge(base[k], override[k])
+                else:
+                    result[k] = override[k]
+            elif k in base:
+                result[k] = base[k]
+            else:
+                result[k] = override[k]
+        return result
+
+    cfg = deep_merge(DEFAULT_CONFIG, user_cfg)
+
+    # 基本校验
+    port = cfg["server"]["port"]
+    if not isinstance(port, int) or not (1 <= port <= 65535):
+        print(f"[!] 无效端口 {port}, 回退到 8765")
+        cfg["server"]["port"] = 8765
+
+    interval = cfg["screenshot"].get("interval_seconds", 4.0)
+    if interval < 0.5:
+        print("[!] 截图间隔最小 0.5 秒")
+        cfg["screenshot"]["interval_seconds"] = 0.5
+
+
+# ================================================================
+#  全局状态
+# ================================================================
+
 connected_clients = set()
 output_file = None
 file_lock = asyncio.Lock()
-args = None
+rec_file_size = 0
+rec_file_seq = 0
+rec_file_base = ""
 
-# 帧队列（用于网络线程和解码线程之间的通信）
-frame_queue = queue.Queue(maxsize=50)
-RUN_FLAG = True
-DISPLAY_FLAG = True  # 是否显示画面
-display_frame = None
-fps_counter = 0
-fps_last_time = time.time()
-current_fps = 0
+START_CODE = b"\x00\x00\x00\x01"
+client_buffers = {}
 
-# 统计信息
-total_frames = 0
+total_ws_msgs = 0
+total_i_frames = 0
 total_bytes = 0
 start_time = None
 
-# 解码器状态
-decoder_initialized = False
-sps_data = None
-pps_data = None
+is_running = True
+nalu_queue = None
+
+_latest_lock = threading.Lock()
+_latest_bgr = None
+_latest_id = 0
+_latest_is_key = False
 
 
-# ===================== H264帧解析工具 =====================
-def find_nal_units(data):
-    """查找H264 NAL单元边界"""
-    nal_units = []
-    i = 0
-    while i < len(data):
-        # 查找起始码 0x00000001 或 0x000001
-        if i + 4 <= len(data) and data[i:i+4] == b'\x00\x00\x00\x01':
-            start = i
-            i += 4
-            # 查找下一个起始码
-            next_start = -1
-            j = i
-            while j < len(data) - 4:
-                if data[j:j+4] == b'\x00\x00\x00\x01' or data[j:j+3] == b'\x00\x00\x01':
-                    next_start = j
-                    break
-                j += 1
-            if next_start == -1:
-                next_start = len(data)
-            nal_units.append(data[start:next_start])
-            i = next_start
-        elif i + 3 <= len(data) and data[i:i+3] == b'\x00\x00\x01':
-            start = i
-            i += 3
-            next_start = -1
-            j = i
-            while j < len(data) - 4:
-                if data[j:j+4] == b'\x00\x00\x00\x01' or data[j:j+3] == b'\x00\x00\x01':
-                    next_start = j
-                    break
-                j += 1
-            if next_start == -1:
-                next_start = len(data)
-            nal_units.append(data[start:next_start])
-            i = next_start
-        else:
-            i += 1
-    return nal_units
+async def send_coordinates(x, y, z, extra=None):
+    """
+    向所有已连接客户端发送坐标数据。
 
+    参数:
+        x: X 坐标 (数字或字符串)
+        y: Y 坐标 (数字或字符串)
+        z: Z 坐标 (数字或字符串)
+        extra: 额外字段字典 (可选), 例如 {"area": "平原", "direction": 180}
 
-def get_nal_type(nal_unit):
-    """获取NAL单元类型"""
-    if len(nal_unit) < 4:
-        return -1
-    # 检查起始码
-    if nal_unit[0:4] == b'\x00\x00\x00\x01':
-        return nal_unit[4] & 0x1F
-    elif nal_unit[0:3] == b'\x00\x00\x01':
-        return nal_unit[3] & 0x1F
-    return -1
+    消息格式 (JSON 文本):
+        {"type": "coords", "x": ..., "y": ..., "z": ..., ...}
 
+    用法示例:
+        await send_coordinates(0.7, 800, 2.0)
+        await send_coordinates(100, 64, -5, extra={"area": "沙漠", "yaw": 90})
+    """
+    if not connected_clients:
+        return
 
-# ===================== H264解码线程 =====================
-def h264_decoder_thread():
-    """H264实时解码线程"""
-    global display_frame, fps_counter, current_fps, fps_last_time, decoder_initialized
-    global sps_data, pps_data
-    
-    buffer = b""
-    min_buffer_size = 50000  # 增加最小缓冲大小
-    last_keyframe_time = time.time()
-    
-    # 创建临时文件用于解码
-    temp_file = "___h264_decoder_temp___.h264"
-    
-    while RUN_FLAG:
+    data = {"type": "coords", "x": x, "y": y, "z": z}
+    if extra and isinstance(extra, dict):
+        data.update(extra)
+
+    msg = json.dumps(data, ensure_ascii=False)
+    dead = set()
+    for ws in connected_clients:
         try:
-            # 从队列获取数据
-            while not frame_queue.empty() and len(buffer) < 200000:  # 限制缓冲区大小
-                data = frame_queue.get_nowait()
-                buffer += data
-                frame_queue.task_done()
-            
-            # 只有当缓冲区足够大时才尝试解码
-            if len(buffer) >= min_buffer_size:
+            await ws.send(msg)
+        except websockets.exceptions.ConnectionClosed:
+            dead.add(ws)
+    if dead:
+        connected_clients.difference_update(dead)
+
+
+def send_coordinates_sync(x, y, z, extra=None):
+    """
+    send_coordinates 的同步版本, 可在非 async 代码中调用。
+
+    用法:
+        send_coordinates_sync(0.7, 800, 2.0)
+        send_coordinates_sync(100, 64, -5, extra={"area": "沙漠"})
+    """
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(send_coordinates(x, y, z, extra))
+    except RuntimeError:
+        pass
+
+# H.264 中解码器能处理(且需要)的 NALU 类型
+# 1-5: VCL 视频切片 (P帧/B帧/IDR帧)
+# 7:   SPS — 解码器用它初始化参数
+# 8:   PPS — 解码器用它初始化参数
+DECODABLE_TYPES = {1, 2, 3, 4, 5, 7, 8}
+
+
+# ================================================================
+#  解码线程 — 用 av.CodecContext 逐包解码
+# ================================================================
+
+def decode_thread_body():
+    """
+    从 nalu_queue 取 NALU, 直接喂给 CodecContext 解码。
+    跳过 SEI(6)/AUD(9)/EndOfSeq(10)/Filler(12) 等非视频 NALU。
+    """
+    global _latest_bgr, _latest_id, _latest_is_key
+
+    codec = None
+    last_sps = None
+    decoded_count = 0
+    err_streak = 0
+
+    while is_running:
+        try:
+            nalu_data, nalu_type = nalu_queue.get(timeout=0.03)
+        except queue.Empty:
+            continue
+
+        # —— 跳过解码器不认识的 NALU 类型 ——
+        # 这就是修复 avcodec_send_packet Invalid data 的关键
+        if nalu_type not in DECODABLE_TYPES:
+            continue
+
+        # —— SPS: 初始化或重建解码器 ——
+        if nalu_type == 7:
+            need_reinit = (codec is None) or (nalu_data != last_sps)
+            if need_reinit:
                 try:
-                    # 查找NAL单元
-                    nal_units = find_nal_units(buffer)
-                    
-                    if nal_units:
-                        # 检查是否有SPS/PPS
-                        for nal in nal_units:
-                            nal_type = get_nal_type(nal)
-                            if nal_type == 7:  # SPS
-                                sps_data = nal
-                                decoder_initialized = True
-                                print(f"[S] 找到SPS, 大小: {len(nal)} bytes")
-                            elif nal_type == 8:  # PPS
-                                pps_data = nal
-                                decoder_initialized = True
-                                print(f"[P] 找到PPS, 大小: {len(nal)} bytes")
-                    
-                    # 如果有完整的数据，尝试解码
-                    if decoder_initialized and len(nal_units) > 0:
-                        # 确保有SPS/PPS开头
-                        output_data = b""
-                        if sps_data:
-                            output_data += sps_data
-                        if pps_data:
-                            output_data += pps_data
-                        
-                        # 添加所有NAL单元
-                        output_data += b"".join(nal_units)
-                        
-                        # 写入临时文件
-                        with open(temp_file, "wb") as f:
-                            f.write(output_data)
-                        
-                        # 尝试解码
-                        cap = cv2.VideoCapture(temp_file)
-                        if cap.isOpened():
-                            ret, frame = cap.read()
-                            if ret and frame is not None:
-                                display_frame = frame
-                                fps_counter += 1
-                                
-                                # 更新FPS
-                                current_time = time.time()
-                                if current_time - fps_last_time >= 1.0:
-                                    current_fps = fps_counter
-                                    fps_counter = 0
-                                    fps_last_time = current_time
-                            
-                            # 读取所有可用帧
-                            while cap.grab():
-                                ret, frame = cap.retrieve()
-                                if ret and frame is not None:
-                                    display_frame = frame
-                            
-                            cap.release()
-                        
-                        # 保留最后一个关键帧之后的数据
-                        # 找到最后一个关键帧的位置
-                        last_keyframe_pos = 0
-                        for i, nal in enumerate(nal_units):
-                            nal_type = get_nal_type(nal)
-                            if nal_type == 5:  # I帧
-                                last_keyframe_pos = i
-                        
-                        if last_keyframe_pos > 0:
-                            # 保留关键帧及其后面的数据
-                            buffer = b"".join(nal_units[last_keyframe_pos:])
-                        else:
-                            # 没有找到关键帧，保留最后一部分
-                            buffer = buffer[-10000:] if len(buffer) > 10000 else b""
-                    else:
-                        # 解码器未初始化，清空缓冲（等待SPS/PPS）
-                        if time.time() - last_keyframe_time > 5:
-                            buffer = b""
-                            print("[!] 等待SPS/PPS...")
-                    
+                    new_codec = av.CodecContext.create("h264", "r")
+                    new_codec.open()
+
+                    # flush 旧解码器残留帧
+                    if codec is not None:
+                        try:
+                            for f in codec.decode(None):
+                                bgr = f.to_ndarray(format="bgr24")
+                                with _latest_lock:
+                                    _latest_bgr = bgr
+                                    _latest_id += 1
+                                    _latest_is_key = False
+                                decoded_count += 1
+                        except Exception:
+                            pass
+                        codec.close()
+
+                    codec = new_codec
+                    last_sps = nalu_data
+                    err_streak = 0
+                    print(f"[DEC] 解码器就绪 (已累计解码 {decoded_count} 帧)")
                 except Exception as e:
-                    print(f"[!] 解码错误: {str(e)[:50]}")
-                    # 解码失败，保留部分数据
-                    buffer = buffer[-10000:] if len(buffer) > 10000 else b""
-            
-            time.sleep(0.005)  # 减少CPU占用
-        
-        except Exception as e:
-            print(f"[!] 解码器线程错误: {str(e)[:50]}")
-            time.sleep(0.1)
-    
-    # 清理
-    if os.path.exists(temp_file):
+                    print(f"[DEC] 初始化失败: {e}")
+                    codec = None
+
+        if codec is None:
+            continue
+
+        # —— 解码视频帧 ——
         try:
-            os.remove(temp_file)
-        except:
+            pkt = av.Packet(nalu_data)
+            for frame in codec.decode(pkt):
+                bgr = frame.to_ndarray(format="bgr24")
+                with _latest_lock:
+                    _latest_bgr = bgr
+                    _latest_id += 1
+                    try:
+                        _latest_is_key = frame.pict_type.name == "I"
+                    except Exception:
+                        _latest_is_key = False
+                decoded_count += 1
+                err_streak = 0
+        except Exception as e:
+            err_streak += 1
+            if err_streak <= 2:
+                print(f"[DEC] 解码异常 (type={nalu_type}): {e}")
+            if err_streak > 50:
+                print("[DEC] 连续错误过多, 强制重置")
+                try:
+                    codec.close()
+                except Exception:
+                    pass
+                codec = None
+                last_sps = None
+                err_streak = 0
+
+    # 退出时 flush
+    if codec:
+        try:
+            for f in codec.decode(None):
+                bgr = f.to_ndarray(format="bgr24")
+                with _latest_lock:
+                    _latest_bgr = bgr
+                    _latest_id += 1
+                decoded_count += 1
+        except Exception:
+            pass
+        try:
+            codec.close()
+        except Exception:
             pass
 
+    with _latest_lock:
+        _latest_bgr = None
+    print(f"[DEC] 解码线程结束, 共解码 {decoded_count} 帧")
 
-# ===================== CV窗口显示线程 =====================
-def cv_window_loop():
-    """OpenCV窗口显示主线程"""
-    global RUN_FLAG, DISPLAY_FLAG, display_frame, current_fps, total_frames, total_bytes
-    
-    cv2.namedWindow("H264 Live Stream", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("H264 Live Stream", 800, 600)
-    
-    while RUN_FLAG:
-        if DISPLAY_FLAG and display_frame is not None:
-            # 在画面上叠加信息
-            frame_with_info = display_frame.copy()
-            
-            # 计算统计信息
-            elapsed_time = time.time() - start_time if start_time else 0
-            bitrate = (total_bytes * 8 / 1024 / 1024) / max(elapsed_time, 1) if elapsed_time > 0 else 0
-            
-            # 添加文字信息
-            info_lines = [
-                f"FPS: {current_fps}",
-                f"Frames: {total_frames}",
-                f"Size: {total_bytes / 1024 / 1024:.2f} MB",
-                f"Bitrate: {bitrate:.2f} Mbps",
-                "Press 'q' to quit | 'f' to toggle fullscreen"
-            ]
-            
-            y_offset = 30
-            for line in info_lines:
-                cv2.putText(frame_with_info, line, (10, y_offset), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                y_offset += 20
-            
-            cv2.imshow("H264 Live Stream", frame_with_info)
-        elif not DISPLAY_FLAG:
-            # 显示等待画面
-            wait_frame = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(wait_frame, "Waiting for stream...", (100, 240), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-            cv2.imshow("H264 Live Stream", wait_frame)
-        
-        # 这一行保证窗口永远不卡死
+
+# ================================================================
+#  显示线程 — cv2.imshow + 定时截图
+# ================================================================
+
+def save_screenshot(frame):
+    """保存一帧截图(同名覆盖)"""
+    ss = cfg["screenshot"]
+    ss_dir = ss["output_dir"]
+    os.makedirs(ss_dir, exist_ok=True)
+    filepath = os.path.join(ss_dir, ss["filename"])
+    quality = ss.get("quality", 85)
+    ext = os.path.splitext(filepath)[1].lower()
+
+    params = []
+    if ext in (".jpg", ".jpeg"):
+        params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+    elif ext == ".png":
+        params = [cv2.IMWRITE_PNG_COMPRESSION, max(0, min(9, 9 - quality // 12))]
+
+    try:
+        cv2.imwrite(filepath, frame, params)
+        print(f"[SS] 截图已保存: {filepath} ({len(frame[0])}x{len(frame)})")
+    except Exception as e:
+        print(f"[SS] 保存失败: {e}")
+
+
+def display_thread_body():
+    """
+    显示窗口 + 定时截图。
+    有新帧就刷新, 没新帧就保持上一帧(不会闪黑屏)。
+    """
+    global is_running
+
+    win = cfg["display"].get("window_name", "H264-Live")
+    overlay = cfg["display"].get("show_overlay", True)
+    ss_on = cfg["screenshot"]["enabled"]
+    ss_sec = cfg["screenshot"].get("interval_seconds", 4.0)
+
+    cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+
+    shown_id = -1
+    fps_count = 0
+    fps_time = time.time()
+    disp_fps = 0.0
+    last_ss = 0.0
+
+    while is_running:
+        with _latest_lock:
+            bgr = _latest_bgr
+            fid = _latest_id
+            is_key = _latest_is_key
+
+        if bgr is not None and fid != shown_id:
+            shown_id = fid
+            fps_count += 1
+
+            # 显示用副本(避免在原帧上画字影响截图)
+            show_img = bgr.copy() if overlay else bgr
+
+            if overlay:
+                label = f"#{fid}"
+                if is_key:
+                    label += " [KEY]"
+                cv2.putText(
+                    show_img, label, (10, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2,
+                )
+                cv2.putText(
+                    show_img, f"{disp_fps:.1f}fps", (10, 58),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 200, 255), 2,
+                )
+
+            cv2.imshow(win, show_img)
+
+            do_ai_recognition(bgr, fid)
+
+            # 截图
+            if ss_on:
+                now = time.time()
+                if now - last_ss >= ss_sec:
+                    save_screenshot(bgr)  # 用原始帧截图(无文字)
+                    last_ss = now
+
+        elif bgr is None:
+            # 真正没帧 → 显示等待提示
+            placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(
+                placeholder, "waiting for stream...", (40, 240),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 180, 0), 2,
+            )
+            cv2.imshow(win, placeholder)
+
         key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            RUN_FLAG = False
+        if key in (27, ord("q"), ord("Q")):
+            print("[GUI] 用户按键退出")
+            is_running = False
             break
-        elif key == ord('f'):
-            # 切换全屏
-            current_state = cv2.getWindowProperty("H264 Live Stream", cv2.WND_PROP_FULLSCREEN)
-            cv2.setWindowProperty("H264 Live Stream", cv2.WND_PROP_FULLSCREEN, 
-                                cv2.WINDOW_FULLSCREEN if current_state == 0 else cv2.WINDOW_NORMAL)
-        elif key == ord('p'):
-            # 暂停/继续显示
-            DISPLAY_FLAG = not DISPLAY_FLAG
-            print(f"[*] 显示: {'开启' if DISPLAY_FLAG else '暂停'}")
-    
+
+        # 每 2 秒刷新 FPS 数值
+        now = time.time()
+        dt = now - fps_time
+        if dt >= 2.0:
+            disp_fps = fps_count / dt
+            fps_count = 0
+            fps_time = now
+
     cv2.destroyAllWindows()
-    print("\n[+] 窗口已关闭")
+    print("[GUI] 显示线程结束")
 
 
-# ===================== WebSocket 服务 =====================
+# ================================================================
+#  AI 识图占位
+# ================================================================
+
+def do_ai_recognition(bgr_frame: np.ndarray, frame_id: int):
+    """在这里接入你的 AI 模型，识别结果通过坐标发送给客户端"""
+    # 示例: 模拟坐标识别，实际使用时替换为你的AI模型输出
+    # 假设从画面中识别到玩家位置
+    mock_x = round(100 + 50 * (frame_id % 100) / 100, 1)
+    mock_y = 64 + (frame_id % 16)
+    mock_z = round(-5 + 3 * ((frame_id % 50) / 50), 1)
+    mock_area = ["平原", "森林", "沙漠", "山脉"][frame_id % 4]
+    mock_direction = (frame_id * 7) % 360
+
+    send_coordinates_sync(
+        mock_x, mock_y, mock_z,
+        extra={"area": mock_area, "direction": mock_direction}
+    )
+
+
+# ================================================================
+#  WebSocket 客户端处理
+# ================================================================
+
 async def handle_client(websocket):
-    """处理客户端连接"""
-    global output_file, total_frames, total_bytes, start_time, decoder_initialized
-    global DISPLAY_FLAG
-    
-    path = websocket.request.path if hasattr(websocket, 'request') else '/'
-    print(f"\n[+] 客户端已连接: {websocket.remote_address}")
-    print(f"[*] 连接路径: {path}")
+    global output_file, total_ws_msgs, total_i_frames, total_bytes, start_time
+    global rec_file_size, rec_file_seq, rec_file_base
+
+    cid = id(websocket)
+    client_buffers[cid] = b""
+
+    print(f"\n[+] 客户端连接: {websocket.remote_address}")
+    print(f"[*] Path: {websocket.request.path}")  # 打印路径，方便调试
     connected_clients.add(websocket)
-    print(f"[*] 当前在线客户端: {len(connected_clients)}")
-    
-    # 记录开始时间
+    print(f"[*] 在线: {len(connected_clients)}")
+
+
+
     if start_time is None:
         start_time = time.time()
-    
-    # 重置解码器状态
-    decoder_initialized = False
-    
+
+    rec_cfg = cfg["recording"]
+    rec_on = rec_cfg["enabled"]
+    max_mb = rec_cfg.get("max_file_mb", 0)
+
     try:
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        filename = f"h264_stream_{timestamp}.h264"
-        
-        async with file_lock:
-            if output_file is not None:
-                output_file.close()
-            output_file = open(filename, 'wb')
-            print(f"[+] 开始写入文件: {filename}")
-        
-        frame_count = 0
-        
+        # —— 开始录制 ——
+        if rec_on:
+            rec_dir = rec_cfg["output_dir"]
+            os.makedirs(rec_dir, exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            prefix = rec_cfg.get("file_prefix", "h264")
+            rec_file_base = f"{prefix}_{ts}"
+            rec_file_seq = 0
+            fname = f"{rec_file_base}.h264"
+
+            async with file_lock:
+                output_file = open(os.path.join(rec_dir, fname), "wb")
+                rec_file_size = 0
+                print(f"[+] 录制开始: {fname}")
+
+        msg_count = 0
+
         async for message in websocket:
-            if isinstance(message, bytes):
-                frame_size = len(message)
-                frame_count += 1
-                total_frames += 1
-                total_bytes += frame_size
-                
-                # 发送到解码队列
-                try:
-                    frame_queue.put_nowait(message)
-                except queue.Full:
-                    print(f"[!] 队列已满，丢弃帧")
-                
-                # 写入文件
+            if not isinstance(message, bytes):
+                continue
+
+            msg_count += 1
+            total_ws_msgs += 1
+            total_bytes += len(message)
+
+            # —— 写文件 ——
+            if rec_on:
                 async with file_lock:
                     if output_file:
                         output_file.write(message)
                         output_file.flush()
-                
-                # 检测帧类型
-                if len(message) > 4:
-                    nal_type = -1
-                    if message[0:4] == b'\x00\x00\x00\x01':
-                        nal_type = message[4] & 0x1F
-                    elif message[0:3] == b'\x00\x00\x01':
-                        nal_type = message[3] & 0x1F
-                    
-                    if nal_type == 5:
-                        print(f"[I] 关键帧, 帧: {frame_count}, 大小: {frame_size} bytes")
-                    elif nal_type == 7:
-                        print(f"[S] SPS 帧, 帧: {frame_count}, 大小: {frame_size} bytes")
-                    elif nal_type == 8:
-                        print(f"[P] PPS 帧, 帧: {frame_count}, 大小: {frame_size} bytes")
-                
-                # 定期输出统计
-                if frame_count % 100 == 0:
-                    elapsed = time.time() - start_time if start_time else 1
-                    avg_fps = frame_count / elapsed
-                    print(f"[*] 已接收 {frame_count} 帧, 总大小: {total_bytes / 1024 / 1024:.2f} MB, 平均FPS: {avg_fps:.1f}")
-            
-            elif isinstance(message, str):
-                print(f"[T] 收到文本消息: {message}")
-    
+                        rec_file_size += len(message)
+
+                        # 文件大小分片轮转
+                        if max_mb > 0 and rec_file_size >= max_mb * 1024 * 1024:
+                            output_file.close()
+                            rec_file_seq += 1
+                            rec_dir = rec_cfg["output_dir"]
+                            fname = (
+                                f"{rec_file_base}"
+                                f"_p{rec_file_seq:03d}.h264"
+                            )
+                            output_file = open(
+                                os.path.join(rec_dir, fname), "wb"
+                            )
+                            rec_file_size = 0
+                            print(f"[+] 录制分片: {fname}")
+
+            # —— NALU 拆分 ——
+            client_buffers[cid] += message
+
+            while True:
+                idx = client_buffers[cid].find(START_CODE, 4)
+                if idx == -1:
+                    break
+
+                nalu = client_buffers[cid][:idx]
+                client_buffers[cid] = client_buffers[cid][idx:]
+
+                if len(nalu) < 5:
+                    continue
+
+                nalu_type = nalu[4] & 0x1F
+
+                if nalu_type == 5:
+                    total_i_frames += 1
+
+                # 喂入解码队列(满了丢最旧的)
+                try:
+                    nalu_queue.put_nowait((nalu, nalu_type))
+                except queue.Full:
+                    try:
+                        nalu_queue.get_nowait()
+                    except queue.Empty:
+                        pass
+                    try:
+                        nalu_queue.put_nowait((nalu, nalu_type))
+                    except queue.Full:
+                        pass
+
+            # —— 统计 ——
+            st = cfg["stats"]
+            if (
+                st.get("enabled", True)
+                and msg_count % st.get("interval", 100) == 0
+            ):
+                elapsed = time.time() - start_time if start_time else 1
+                print(
+                    f"[*] 消息:{msg_count}  I帧:{total_i_frames}  "
+                    f"{total_bytes / 1048576:.1f}MB  "
+                    f"{msg_count / elapsed:.0f}msg/s"
+                )
+
     except websockets.exceptions.ConnectionClosed:
-        print(f"[-] 客户端断开连接: {websocket.remote_address}")
+        print(f"[-] 客户端断开: {websocket.remote_address}")
     except Exception as e:
-        print(f"[!] 发生错误: {e}")
+        print(f"[!] 错误: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
+        if cid in client_buffers:
+            del client_buffers[cid]
         connected_clients.discard(websocket)
-        print(f"[*] 当前在线客户端: {len(connected_clients)}")
-        
+        print(f"[*] 在线: {len(connected_clients)}")
+
         async with file_lock:
             if output_file:
                 output_file.close()
                 output_file = None
-                print("[+] 文件已关闭")
-        
-        # 重置状态
+                print("[+] 录制文件已关闭")
+
         if len(connected_clients) == 0:
-            # 没有客户端了，重置统计
-            total_frames = 0
+            total_ws_msgs = 0
+            total_i_frames = 0
             total_bytes = 0
             start_time = None
-            decoder_initialized = False
-            # 清空帧队列
-            while not frame_queue.empty():
-                try:
-                    frame_queue.get_nowait()
-                except:
-                    pass
-            print("[*] 所有客户端已断开，等待新连接...")
+            print("[*] 等待新连接...")
 
+
+# ================================================================
+#  启动
+# ================================================================
 
 async def main():
-    """启动 WebSocket 服务器"""
+    srv = cfg["server"]
     server = await websockets.serve(
         handle_client,
-        '0.0.0.0',
-        args.port,
-        max_size=10 * 1024 * 1024
+        srv["host"],
+        srv["port"],
+        max_size=srv.get("max_message_mb", 2) * 1024 * 1024,
     )
-    
-    print("=" * 60)
-    print("✅ H264 实时流服务器启动成功")
-    print("=" * 60)
-    print(f"本地地址: ws://localhost:{args.port}/stream")
-    print(f"网络地址: ws://0.0.0.0:{args.port}/stream")
-    print("=" * 60)
-    print("使用 cloudflared 内网穿透:")
-    print(f"  cloudflared.exe tunnel --url http://localhost:{args.port}")
-    print("=" * 60)
-    print("快捷键:")
-    print("  q - 退出程序")
-    print("  f - 切换全屏")
-    print("  p - 暂停/继续显示")
-    print("=" * 60)
-    print("等待客户端连接...")
-    print("-" * 60)
-    
-    # 启动H264解码线程
-    threading.Thread(target=h264_decoder_thread, daemon=True).start()
-    
+
+    print("=" * 55)
+    print("  H.264 实时服务器 v3")
+    print("=" * 55)
+    print(f"  地址:      ws://{srv['host']}:{srv['port']}")
+    d = cfg["display"]
+    print(f"  CV窗口:    {'开启' if d['enabled'] else '关闭'}"
+          f"{'  (叠加信息)' if d['enabled'] and d['show_overlay'] else ''}")
+    r = cfg["recording"]
+    print(f"  录制保存:  {'开启' if r['enabled'] else '关闭'}"
+          f"{'  dir=' + r['output_dir'] if r['enabled'] else ''}"
+          f"{'  上限' + str(r['max_file_mb']) + 'MB' if r['enabled'] and r['max_file_mb'] else ''}")
+    s = cfg["screenshot"]
+    if s["enabled"]:
+        print(f"  截图:      开启  {s['interval_seconds']}秒/次"
+              f"  → {s['output_dir']}/{s['filename']}")
+    else:
+        print(f"  截图:      关闭")
+    print(f"  解码队列:  {cfg['decode'].get('queue_size', 8000)}")
+    print("=" * 55)
+    print("  cloudflared:")
+    print(f"    cloudflared tunnel --url http://localhost:{srv['port']}")
+    print("=" * 55)
+    print("  等待客户端连接...")
+    print("-" * 55)
+
+    async def coord_demo_task():
+        """后台定时发送示例坐标 (每2秒), 方便测试悬浮窗坐标显示"""
+        demo_x = 0.0
+        while is_running:
+            await asyncio.sleep(2)
+            if connected_clients:
+                demo_x = round((demo_x + 0.7) % 1000, 1)
+                demo_y = 64 + int(demo_x) % 16
+                demo_z = round(-5 + (demo_x % 10), 1)
+                areas = ["平原", "森林", "沙漠", "山脉", "海洋", "洞穴"]
+                area = areas[int(demo_x) % len(areas)]
+                await send_coordinates(
+                    demo_x, demo_y, demo_z,
+                    extra={"area": area, "direction": int(demo_x * 3.6) % 360}
+                )
+                print(f"[COORD] 已发送: x={demo_x}, y={demo_y}, z={demo_z}, area={area}")
+
+    asyncio.create_task(coord_demo_task())
+
     async with server:
         await server.wait_closed()
 
 
-# ===================== 启动 =====================
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="WebSocket H.264 裸流实时服务器")
-    parser.add_argument("--port", type=int, default=8765, help="监听端口")
-    args = parser.parse_args()
-    
-    # 创建输出目录
-    if not os.path.exists("output"):
-        os.makedirs("output")
-    os.chdir("output")
-    
+    parser = argparse.ArgumentParser(description="H.264 实时服务器 v3")
+    parser.add_argument("--port", type=int, default=None,
+                        help="覆盖配置文件中的端口")
+    parser.add_argument("--config", type=str, default=None,
+                        help="指定配置文件路径")
+    cli = parser.parse_args()
+
+    load_config(cli.config)
+
+    # 命令行参数覆盖配置文件
+    if cli.port is not None:
+        cfg["server"]["port"] = cli.port
+
+    # 初始化解码队列(必须在 load_config 之后)
+    nalu_queue = queue.Queue(maxsize=cfg["decode"].get("queue_size", 8000))
+
+    # 只在需要解码时才启动解码线程
+    need_decode = cfg["display"]["enabled"] or cfg["screenshot"]["enabled"]
+    if need_decode:
+        threading.Thread(target=decode_thread_body, name="decode", daemon=True).start()
+
+    # 只在需要显示时才启动显示线程
+    if cfg["display"]["enabled"]:
+        threading.Thread(target=display_thread_body, name="display", daemon=True).start()
+
+    # 主线程: WebSocket 服务器
     try:
-        # 启动WebSocket服务（在后台线程）
-        threading.Thread(target=lambda: asyncio.run(main()), daemon=True).start()
-        
-        # 主线程运行CV窗口
-        cv_window_loop()
-        
+        asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n[+] 服务器已停止")
+        pass
     finally:
-        RUN_FLAG = False
-        if output_file:
-            output_file.close()
+        is_running = False
+        print("\n[+] 服务器已停止")

@@ -46,6 +46,8 @@ dependencies {
     implementation("io.github.thibaultbee.streampack:streampack-srt:3.1.2")
     implementation("io.github.thibaultbee.streampack:streampack-flv:3.1.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("androidx.localbroadcastmanager:localbroadcastmanager:1.1.0")
+    implementation("com.davemorrissey.labs:subsampling-scale-image-view:3.10.0")
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

@@ -1,8 +1,10 @@
 package com.mcbcc.mcbtm.endpoints
 
 import android.content.Context
+import android.content.Intent
 import android.media.MediaFormat
 import android.util.Log
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.preference.PreferenceManager
 import com.mcbcc.mcbtm.R
 import io.github.thibaultbee.streampack.core.configuration.mediadescriptor.MediaDescriptor
@@ -23,6 +25,7 @@ import okhttp3.Request
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -188,6 +191,7 @@ class WebSocketEndpoint(
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 Log.d(TAG, "Received text: $text")
+                handleServerMessage(text)
             }
 
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -305,6 +309,37 @@ class WebSocketEndpoint(
             return customDataStr
         }
         return "ws://${descriptor.uri.host}:${descriptor.uri.port ?: 8765}${descriptor.uri.path ?: "/stream"}"
+    }
+
+    private fun handleServerMessage(text: String) {
+        try {
+            val json = JSONObject(text)
+            val type = json.optString("type", "")
+            when (type) {
+                "coords" -> {
+                    val x = json.optString("x", "")
+                    val y = json.optString("y", "")
+                    val z = json.optString("z", "")
+                    val area = json.optString("area", "")
+                    val direction = json.optString("direction", "")
+                    val intent = Intent(ACTION_SERVER_MESSAGE).apply {
+                        putExtra(EXTRA_MSG_TYPE, "coords")
+                        putExtra(EXTRA_COORD_X, x)
+                        putExtra(EXTRA_COORD_Y, y)
+                        putExtra(EXTRA_COORD_Z, z)
+                        putExtra(EXTRA_COORD_AREA, area)
+                        putExtra(EXTRA_COORD_DIRECTION, direction)
+                    }
+                    LocalBroadcastManager.getInstance(context).sendBroadcast(intent)
+                    Log.d(TAG, "Broadcast coords: x=$x, y=$y, z=$z, area=$area")
+                }
+                else -> {
+                    Log.d(TAG, "Unknown server message type: $type")
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Non-JSON server message: $text")
+        }
     }
 
     private fun handleQueueOverflow() {
@@ -706,6 +741,14 @@ class WebSocketEndpoint(
     }
 
     companion object : IEndpointInternal.Factory {
+        const val ACTION_SERVER_MESSAGE = "com.mcbcc.mcbtm.SERVER_MESSAGE"
+        const val EXTRA_MSG_TYPE = "msg_type"
+        const val EXTRA_COORD_X = "coord_x"
+        const val EXTRA_COORD_Y = "coord_y"
+        const val EXTRA_COORD_Z = "coord_z"
+        const val EXTRA_COORD_AREA = "coord_area"
+        const val EXTRA_COORD_DIRECTION = "coord_direction"
+
         override fun create(
             context: Context,
             dispatcherProvider: IDispatcherProvider

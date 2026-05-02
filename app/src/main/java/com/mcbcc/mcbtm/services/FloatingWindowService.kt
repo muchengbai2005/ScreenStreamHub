@@ -4,8 +4,11 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.PointF
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
@@ -17,7 +20,10 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.davemorrissey.labs.subscaleview.SubsamplingScaleImageView
 import com.mcbcc.mcbtm.R
+import com.mcbcc.mcbtm.endpoints.WebSocketEndpoint
 
 class FloatingWindowService : Service() {
 
@@ -34,7 +40,30 @@ class FloatingWindowService : Service() {
     private var initialTouchX = 0f
     private var initialTouchY = 0f
     private var isDragging = false
-    private var dragStartTime = 0L
+
+    private var currentWorldX = 0.0
+    private var currentWorldZ = 0.0
+    private var hasValidCoords = false
+
+    private var mapWorldMinX = 0.0
+    private var mapWorldMaxX = 1000.0
+    private var mapWorldMinZ = -100.0
+    private var mapWorldMaxZ = 100.0
+
+    private val coordReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == WebSocketEndpoint.ACTION_SERVER_MESSAGE) {
+                val msgType = intent.getStringExtra(WebSocketEndpoint.EXTRA_MSG_TYPE)
+                if (msgType == "coords") {
+                    val x = intent.getStringExtra(WebSocketEndpoint.EXTRA_COORD_X) ?: ""
+                    val y = intent.getStringExtra(WebSocketEndpoint.EXTRA_COORD_Y) ?: ""
+                    val z = intent.getStringExtra(WebSocketEndpoint.EXTRA_COORD_Z) ?: ""
+                    val area = intent.getStringExtra(WebSocketEndpoint.EXTRA_COORD_AREA) ?: ""
+                    updateCoordinates(x, y, z, area)
+                }
+            }
+        }
+    }
 
     companion object {
         const val ACTION_SHOW = "com.mcbcc.mcbtm.FLOATING_SHOW"
@@ -59,6 +88,7 @@ class FloatingWindowService : Service() {
         startForeground(NOTIFICATION_ID, buildNotification())
         isRunning = true
         createFloatingWindow()
+        registerCoordReceiver()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -81,8 +111,20 @@ class FloatingWindowService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        unregisterCoordReceiver()
         removeFloatingView()
         isRunning = false
+    }
+
+    private fun registerCoordReceiver() {
+        val filter = IntentFilter(WebSocketEndpoint.ACTION_SERVER_MESSAGE)
+        LocalBroadcastManager.getInstance(this).registerReceiver(coordReceiver, filter)
+    }
+
+    private fun unregisterCoordReceiver() {
+        try {
+            LocalBroadcastManager.getInstance(this).unregisterReceiver(coordReceiver)
+        } catch (_: Exception) {}
     }
 
     private fun createNotificationChannel() {
@@ -137,6 +179,39 @@ class FloatingWindowService : Service() {
 
         setupDragOnEyeButton(params)
         setupButtonListeners()
+        loadMapImage()
+    }
+
+    private fun loadMapImage() {
+        val ivMap = floatingView?.findViewById<SubsamplingScaleImageView>(R.id.ivMapImage) ?: return
+        ivMap.setMinimumScaleType(SubsamplingScaleImageView.SCALE_TYPE_CENTER_CROP)
+        ivMap.setImage(com.davemorrissey.labs.subscaleview.ImageSource.resource(R.drawable.big_map))
+
+        ivMap.setOnImageEventListener(object : SubsamplingScaleImageView.OnImageEventListener {
+            override fun onReady() {
+                repositionMarker()
+            }
+
+            override fun onImageLoaded() {}
+
+            override fun onPreviewLoadError(e: Exception?) {}
+
+            override fun onImageLoadError(e: Exception?) {}
+
+            override fun onTileLoadError(e: Exception?) {}
+
+            override fun onPreviewReleased() {}
+        })
+
+        ivMap.setOnStateChangedListener(object : SubsamplingScaleImageView.OnStateChangedListener {
+            override fun onScaleChanged(newScale: Float, origin: Int) {
+                repositionMarker()
+            }
+
+            override fun onCenterChanged(newCenter: PointF?, origin: Int) {
+                repositionMarker()
+            }
+        })
     }
 
     private fun setupDragOnEyeButton(params: WindowManager.LayoutParams) {
@@ -150,7 +225,6 @@ class FloatingWindowService : Service() {
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
                     isDragging = false
-                    dragStartTime = System.currentTimeMillis()
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -282,16 +356,78 @@ class FloatingWindowService : Service() {
     }
 
     private fun applyZoom() {
-        val contentPanel = floatingView?.findViewById<View>(R.id.mapPreviewArea) ?: return
-        contentPanel.scaleX = zoomLevel
-        contentPanel.scaleY = zoomLevel
+        val ivMap = floatingView?.findViewById<SubsamplingScaleImageView>(R.id.ivMapImage) ?: return
+        val currentCenter = ivMap.center ?: return
+        ivMap.setScaleAndCenter(zoomLevel, currentCenter)
         val tvZoom = floatingView?.findViewById<TextView>(R.id.tvZoomLevel)
         tvZoom?.text = String.format("%.0f%%", zoomLevel * 100)
     }
 
-    private fun updateCoordinates(x: String, y: String, z: String) {
+    private fun updateCoordinates(x: String, y: String, z: String, area: String = "") {
         val tvCoords = floatingView?.findViewById<TextView>(R.id.tvCoordinates)
         tvCoords?.text = "$x, $y, $z"
+
+        if (area.isNotEmpty()) {
+            val tvArea = floatingView?.findViewById<TextView>(R.id.tvAreaName)
+            tvArea?.text = area
+        }
+
+        val xVal = x.toDoubleOrNull()
+        val zVal = z.toDoubleOrNull()
+        if (xVal != null && zVal != null) {
+            currentWorldX = xVal
+            currentWorldZ = zVal
+            hasValidCoords = true
+            repositionMarker()
+        }
+    }
+
+    private fun worldToImageCoord(worldX: Double, worldZ: Double): PointF? {
+        val ivMap = floatingView?.findViewById<SubsamplingScaleImageView>(R.id.ivMapImage) ?: return null
+        val sWidth = ivMap.sWidth.toFloat()
+        val sHeight = ivMap.sHeight.toFloat()
+        if (sWidth <= 0f || sHeight <= 0f) return null
+
+        val rangeX = mapWorldMaxX - mapWorldMinX
+        val rangeZ = mapWorldMaxZ - mapWorldMinZ
+        if (rangeX <= 0 || rangeZ <= 0) return null
+
+        val pctX = ((worldX - mapWorldMinX) / rangeX).coerceIn(0.0, 1.0)
+        val pctZ = ((worldZ - mapWorldMinZ) / rangeZ).coerceIn(0.0, 1.0)
+
+        return PointF((pctX * sWidth).toFloat(), (pctZ * sHeight).toFloat())
+    }
+
+    private fun repositionMarker() {
+        if (!hasValidCoords) return
+
+        val marker = floatingView?.findViewById<android.widget.ImageView>(R.id.ivPlayerMarker) ?: return
+        val ivMap = floatingView?.findViewById<SubsamplingScaleImageView>(R.id.ivMapImage) ?: return
+
+        if (!ivMap.isReady) return
+
+        val imageCoord = worldToImageCoord(currentWorldX, currentWorldZ)
+        if (imageCoord == null) {
+            android.util.Log.w("FloatingWindow", "worldToImageCoord returned null")
+            return
+        }
+
+        val viewCoord = ivMap.sourceToViewCoord(imageCoord)
+        if (viewCoord == null) {
+            android.util.Log.w("FloatingWindow", "sourceToViewCoord returned null for imageCoord=$imageCoord")
+            return
+        }
+
+        android.util.Log.d("FloatingWindow", "worldX=$currentWorldX, worldZ=$currentWorldZ -> imageCoord=$imageCoord -> viewCoord=$viewCoord")
+
+        marker.post {
+            val lp = marker.layoutParams as android.widget.FrameLayout.LayoutParams
+            lp.leftMargin = (viewCoord.x - 8f).toInt()
+            lp.topMargin = (viewCoord.y - 16f).toInt()
+            lp.gravity = Gravity.START or Gravity.TOP
+            marker.layoutParams = lp
+            marker.visibility = View.VISIBLE
+        }
     }
 
     private fun removeFloatingView() {
